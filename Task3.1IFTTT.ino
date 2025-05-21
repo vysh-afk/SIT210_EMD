@@ -1,83 +1,62 @@
+#include <WiFiNINA.h>
+#include <ArduinoHttpClient.h>
 #include <Wire.h>
 #include <BH1750.h>
-#include <WiFiNINA.h>
-#include "secrets.h"  // Include your Wi-Fi credentials and IFTTT API key
 
-// Create an instance of the BH1750 light sensor
+const char* ssid = "iPhone";
+const char* pass = "ipoparayam";
+
+WiFiClient wifi;
+HttpClient client = HttpClient(wifi, "maker.ifttt.com", 80);
+
+String IFTTT_Key = "";
+
 BH1750 lightMeter;
-
-// WiFi client
-WiFiClient client;
-String server = "maker.ifttt.com";  // IFTTT Webhooks server
-String url = "/trigger/" + String(IFTTT_EVENT_NAME) + "/with/key/" + String(IFTTT_API_KEY);
-
-// Pin Setup for I2C
-const int lightSensorPin = A0;  // Not used for I2C-based sensor, but kept for any potential analog sensor
-
-// Threshold for sunlight detection (adjust based on your environment)
-const int sunlightThreshold = 50;  // Threshold for sunlight intensity, adjust as needed
+bool sunlightActive = false;
+float threshold = 100.0;  // Adjust this lux threshold for your environment
 
 void setup() {
-  // Start serial communication
   Serial.begin(9600);
-
-  // Initialize the light sensor (BH1750)
   Wire.begin();
   lightMeter.begin();
 
-  // Connect to Wi-Fi
-  WiFi.begin(SSID, WIFI_PASSWORD);  // Your Wi-Fi credentials from secrets.h
+  Serial.println("Initializing WiFi...");
+  WiFi.begin(ssid, pass);
   while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
-    Serial.println("Connecting to WiFi...");
+    Serial.print(".");
   }
-
-  // Successfully connected to Wi-Fi
-  Serial.println("Connected to WiFi");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
+  Serial.println("\nConnected to WiFi........");
 }
 
 void loop() {
-  // Read light level from the BH1750 sensor
-  uint16_t lightLevel = lightMeter.readLightLevel();
-  Serial.print("Light Level: ");
-  Serial.println(lightLevel);
+  float lux = lightMeter.readLightLevel();
+  Serial.print("Lux: ");
+  Serial.println(lux);
 
-  // Check if sunlight is detected (light level greater than the threshold)
-  if (lightLevel > sunlightThreshold) {
-    Serial.println("Sunlight detected!");
-    sendIFTTTTrigger("sunlight_on");  // Trigger IFTTT notification for sunlight
-  } else {
-    Serial.println("No sunlight detected.");
-    sendIFTTTTrigger("sunlight_off");  // Trigger IFTTT notification when sunlight stops
+  if (lux > threshold && !sunlightActive) {
+    triggerIFTTT("sunlight_started");
+    sunlightActive = true;
+  } 
+  else if (lux <= threshold && sunlightActive) {
+    triggerIFTTT("sunlight_stopped");
+    sunlightActive = false;
   }
 
-  // Wait 10 seconds before checking again
-  delay(10000);
+  delay(10000); // Check every 10 seconds
 }
 
-// Function to send an IFTTT trigger
-void sendIFTTTTrigger(String trigger) {
-  // Connect to the IFTTT Webhooks server
-  if (client.connect(server.c_str(), 80)) {
-    // Send the HTTP GET request to IFTTT with the trigger event
-    String fullUrl = url + "&value1=" + trigger;
-    client.println("GET " + fullUrl + " HTTP/1.1");
-    client.println("Host: " + server);
-    client.println("Connection: close");
-    client.println();
+void triggerIFTTT(String event) {
+  String requestURL = "/trigger/" + event + "/with/key/" + IFTTT_Key;
+  client.get(requestURL);
 
-    // Print the response from IFTTT (optional)
-    String response = "";
-    while (client.available()) {
-      response = client.readString();
-      Serial.println(response);
-    }
+  int statusCode = client.responseStatusCode();
+  String response = client.responseBody();
 
-    client.stop(); // Close the connection after sending
-  } else {
-    Serial.println("Connection failed.");
-  }
+  Serial.print("Status code: ");
+  Serial.println(statusCode);
+  Serial.print("Response: ");
+  Serial.println(response);
 }
+
 
